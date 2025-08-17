@@ -1,0 +1,45 @@
+import axios from "axios";
+import { incrementRequestCount } from '../../../lib/db';
+
+export default async function handler(req, res) {
+  if (req.method !== "GET") {
+    return res.status(405).json({ success: false, error: "Method not allowed" });
+  }
+
+  try {
+    const { url, prompt, size } = req.query;
+    await incrementRequestCount('ghibliai');
+
+    if (!url) {
+      return res.status(400).json({ success: false, error: "Image URL is required" });
+    }
+
+    // request ke RapidAPI
+    const response = await axios.request({
+      method: "POST",
+      url: "https://ghibli-image-generator-api-open-ai-4o-image-generation-free.p.rapidapi.com/aaaaaaaaaaaaaaaaaiimagegenerator/ghibli/generate.php",
+      headers: {
+        "x-rapidapi-key": "54e3852bd3msh27c27c29c524075p1198c0jsn1090b1059bcc",
+        "x-rapidapi-host": "ghibli-image-generator-api-open-ai-4o-image-generation-free.p.rapidapi.com",
+        "Content-Type": "application/json",
+      },
+      data: {
+        prompt: prompt || "Transform this image in the style of Studio Ghibli.",
+        filesUrl: [url],
+        size: size || "1:1",
+      },
+    });
+
+    return res.status(200).json({
+      success: true,
+      result: response.data,
+    });
+  } catch (error) {
+    console.error(error.response?.data || error.message);
+    return res.status(500).json({
+      success: false,
+      error: "Internal Server Error",
+      details: error.response?.data || error.message,
+    });
+  }
+}

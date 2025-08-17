@@ -1,0 +1,82 @@
+// pages/api/downloader/fb-ig.js
+import { incrementRequestCount } from "../../../lib/db";
+import snapsave from "metadownloader";
+import axios from "axios";
+
+export default async function handler(req, res) {
+  if (req.method !== "GET") {
+    return res
+      .status(405)
+      .json({ success: false, message: "Method not allowed" });
+  }
+
+  const { url } = req.query;
+  if (!url) {
+    return res
+      .status(400)
+      .json({ success: false, message: 'Parameter "url" diperlukan' });
+  }
+
+  try {
+    let result;
+
+    // --- Try snapsave/metadownloader ---
+    try {
+      result = await snapsave(url);
+
+      // kalau hasilnya string HTML, lempar error supaya fallback jalan
+      if (typeof result === "string" && result.includes("<!DOCTYPE")) {
+        throw new Error("Snapsave returned HTML instead of JSON");
+      }
+    } catch (err) {
+      console.warn("Snapsave gagal, fallback ke VidFly:", err.message);
+
+      // --- Fallback ke vidfly.ai ---
+      const fallback = await axios.get(
+        "https://api.vidfly.ai/api/media/facebook/download",
+        {
+          params: { url },
+          headers: {
+            accept: "*/*",
+            "content-type": "application/json",
+            "x-app-name": "vidfly-web",
+            "x-app-version": "1.0.0",
+            Referer: "https://vidfly.ai/",
+          },
+        }
+      );
+
+      const data = fallback.data?.data;
+      if (!data || !data.items) {
+        throw new Error("Fallback API tidak mengembalikan data valid");
+      }
+
+      result = {
+        title: data.title,
+        thumbnail: data.cover,
+        duration: data.duration,
+        formats: data.items.map((item) => ({
+          type: item.type,
+          quality: item.label || "unknown",
+          extension: item.ext || "unknown",
+          url: item.url,
+        })),
+      };
+    }
+
+    // increment counter
+    await incrementRequestCount("fb-ig");
+
+    return res.status(200).json({
+      success: true,
+      data: result,
+    });
+  } catch (error) {
+    console.error("FB/IG downloader error:", error);
+    return res.status(500).json({
+      success: false,
+      error: "Request gagal dijalankan.",
+      details: error.message,
+    });
+  }
+}
